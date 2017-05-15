@@ -1,70 +1,69 @@
-'use strict';
+'use strict'
 
-const fs 	= require('fs');
-const https = require('https');
-const exec 	= require('child_process').exec;
+const fs = require('fs')
+const https = require('https')
+const childProcess = require('child_process')
 
-const URL 		= "https://www.reddit.com/r/netsec/new.json";
-const DATA_URL 	= __dirname+'/data/data.json';
-const INTERVAL 	= 1000 * 60 * 5;
+const LAST_ID_PARSED_PATH = `${__dirname}/last-id-parsed`
+const INTERVAL = process.env.INTERVAL || (1000 * 60 * 5)
 
-function notify(titles){
-	exec(`notify-send -i ${__dirname}/favicon.ico "Temple Notifier" "* ${titles.join('\n* ')}"`, function (error, stdout, stderr){
-		if(error){
-			console.log(error);
-		}
-		if(stderr){
-			console.log(stderr);
-		}
-	});
+function notify (titles) {
+  childProcess.exec(`notify-send -i ${__dirname}/favicon.ico "Temple Notifier" "* ${titles.join('\n* ')}"`, (error, stdout, stderr) => {
+    error = error || stderr
+
+    if (error) return console.error(error)
+  })
 }
 
-function update(){
-	var seenIds = [];
-	fs.readFile(DATA_URL, 'utf8', function(err, res){
-		if(err){
-			return console.log(err);
-		}
-		seenIds = JSON.parse(res);
-	});
+function update () {
+  let latestId = ''
+  try {
+    latestId = fs.readFileSync(LAST_ID_PARSED_PATH, 'utf8')
+  } catch (err) {
+    console.error(err)
+  }
 
-	var req = https.get(URL, res => {
-		var data = '';
-		res.on('data', chunk => {
-			data += chunk;
-		});
-		res.on('end', () => {
-			var titles = JSON.parse(data).data.children
-				.map(el => {
-					return {
-						id: el.data.id,
-						title: el.data.title
-					};
-				})
-				.filter(el => {
-					return seenIds.indexOf(el.id) === -1;
-				})
-				.map(el => {
-					seenIds.push(el.id);
-					return el.title;
-				});
+  const requestOptions = {
+    host: 'www.reddit.com',
+    path: '/r/netsec/new.json?before=' + latestId,
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows; U; Windows NT 5.1; en-US; rv:1.8.1.13) Gecko/20080311 Firefox/2.0.0.13'
+    }
+  }
 
-			// console.log(JSON.stringify({
-			// 	date: new Date(),
-			// 	titles: titles
-			// }));
+  const req = https.get(requestOptions, (res) => {
+    let data = ''
+    res.on('data', (chunk) => {
+      data += chunk
+    })
+    res.on('end', () => {
+      try {
+        data = JSON.parse(data).data
+      } catch (err) {
+        return console.error('Unable to parse response', err)
+      }
 
-			fs.writeFile(DATA_URL, JSON.stringify(seenIds));
-			titles.length && notify(titles)
-		});
-	});
+      const reddits = data.children.map((el) => {
+        return {
+          id: el.data.name,
+          title: el.data.title
+        }
+      })
 
-	req.on('error', err => {
-		console.log(err);
-	});
+      if (!reddits.length) return
 
-	req.end();
+      fs.writeFileSync(LAST_ID_PARSED_PATH, reddits[0].id)
+
+      notify(reddits.map((r) => r.title))
+    })
+  })
+
+  req.on('error', (err) => {
+    console.error(err)
+  })
+
+  req.end()
 }
 
-update();
-setInterval(update, INTERVAL);
+update()
+setInterval(update, INTERVAL)

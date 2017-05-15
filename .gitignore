@@ -1,5 +1,4 @@
 log/*
 !log/.gitkeep
 
-data/*
-!data/.gitkeep
+last-id-parsed
